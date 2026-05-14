@@ -1,0 +1,196 @@
+version: '3'
+
+vars:
+  GEMINI_HOME: "{{.HOME}}/.gemini"
+  REPO_DIR: "{{.PWD}}"
+
+tasks:
+  default:
+    cmd: task --list
+
+  setup-gemini-interactive:
+    desc: Interactive setup with team/expertise/level selection
+    preconditions:
+      - sh: command -v fzf >/dev/null 2>&1
+        msg: "fzf is required. Install with: brew install fzf (macOS) or apt-get install fzf (Linux)"
+    cmd: bash {{.REPO_DIR}}/scripts/setup-gemini-interactive.sh
+
+  install-mempalace:
+    desc: Install or upgrade MemPalace at the pinned version (>=3.3.3,<3.4)
+    preconditions:
+      - sh: command -v pipx >/dev/null 2>&1
+        msg: "pipx is required. Install with: brew install pipx (macOS) or apt-get install pipx (Linux)"
+    cmd: pipx install --force 'mempalace>=3.3.3,<3.4'
+
+  install-workspace:
+    desc: Install all community-config components (copy mode)
+    cmd: bash {{.REPO_DIR}}/scripts/install-workspace.sh install
+
+  link-workspace:
+    desc: Link all community-config components (symlink mode, for development)
+    cmd: bash {{.REPO_DIR}}/scripts/install-workspace.sh link
+
+  install-component:
+    desc: "Install a single component (task install-component TYPE=skills NAME=my-skill)"
+    cmd: bash {{.REPO_DIR}}/scripts/manage-workspace-component.sh install {{.TYPE}} {{.NAME}}
+
+  link-component:
+    desc: "Link a single component (task link-component TYPE=skills NAME=my-skill)"
+    cmd: bash {{.REPO_DIR}}/scripts/manage-workspace-component.sh link {{.TYPE}} {{.NAME}}
+
+  unlink-component:
+    desc: "Remove a component from ~/.gemini (task unlink-component TYPE=skills NAME=my-skill)"
+    cmd: bash {{.REPO_DIR}}/scripts/unlink-component.sh {{.TYPE}} {{.NAME}}
+
+  install-deps:
+    desc: Install npm dependencies for all extensions
+    cmd: npm install
+
+  install-extensions:
+    desc: Install all extensions (copy mode)
+    cmd: bash {{.REPO_DIR}}/scripts/install-extension.sh install
+
+  install-extension:
+    desc: "Install a single extension (task install-extension EXT=hello-world)"
+    cmd: bash {{.REPO_DIR}}/scripts/install-extension.sh install {{.EXT}}
+
+  link-extensions:
+    desc: Link all extensions (symlink mode, for development)
+    cmd: bash {{.REPO_DIR}}/scripts/link-extensions.sh
+
+  unlink-extensions:
+    desc: Remove all installed extensions
+    cmd: bash {{.REPO_DIR}}/scripts/unlink-extensions.sh
+
+  package:
+    desc: Package all extensions to dist/
+    deps: [install-deps]
+    cmd: bash {{.REPO_DIR}}/scripts/package-extensions.sh
+
+  package-extension:
+    desc: "Package a single extension (task package-extension EXT=hello-world)"
+    cmd: bash {{.REPO_DIR}}/scripts/package-extension.sh
+
+  create-extension:
+    desc: "Scaffold a new extension from skeleton (task create-extension NAME=my-ext)"
+    preconditions:
+      - sh: command -v fzf >/dev/null 2>&1
+        msg: "fzf is required. Install with: brew install fzf (macOS) or apt-get install fzf (Linux)"
+    cmd: bash {{.REPO_DIR}}/scripts/create-extension.sh
+
+  # --- Claude Code tasks ---
+
+  setup-claude-interactive:
+    desc: Interactive Claude Code setup with team/expertise/level selection (copy by default)
+    preconditions:
+      - sh: command -v fzf >/dev/null 2>&1
+        msg: "fzf is required. Install with: brew install fzf (macOS) or apt-get install fzf (Linux)"
+    cmd: bash {{.REPO_DIR}}/scripts/setup-claude-interactive.sh
+
+  import-claude-history:
+    desc: Backfill MemPalace with pre-existing Claude Code transcripts from ~/.claude/projects (idempotent)
+    preconditions:
+      - sh: command -v fzf >/dev/null 2>&1
+        msg: "fzf is required. Install with: brew install fzf (macOS) or apt-get install fzf (Linux)"
+    cmd: bash {{.REPO_DIR}}/scripts/import-claude-history.sh
+
+  import-gemini-history:
+    desc: Backfill MemPalace with pre-existing Gemini CLI transcripts from ~/.gemini/tmp (idempotent)
+    preconditions:
+      - sh: command -v fzf >/dev/null 2>&1
+        msg: "fzf is required. Install with: brew install fzf (macOS) or apt-get install fzf (Linux)"
+    cmd: bash {{.REPO_DIR}}/scripts/import-gemini-history.sh
+
+  install-claude-workspace:
+    desc: Install all community-config Claude Code components (copy mode)
+    cmd: bash {{.REPO_DIR}}/scripts/manage-claude-component.sh install claude-skills
+
+  link-claude-workspace:
+    desc: Link all community-config Claude Code components (symlink mode — dev only)
+    cmd: bash {{.REPO_DIR}}/scripts/manage-claude-component.sh link claude-skills
+
+  install-claude-component:
+    desc: "Install a single Claude Code component (task install-claude-component TYPE=claude-skills NAME=my-skill)"
+    cmd: bash {{.REPO_DIR}}/scripts/manage-claude-component.sh install {{.TYPE}} {{.NAME}}
+
+  link-claude-component:
+    desc: "Link a single Claude Code component (task link-claude-component TYPE=claude-skills NAME=my-skill)"
+    cmd: bash {{.REPO_DIR}}/scripts/manage-claude-component.sh link {{.TYPE}} {{.NAME}}
+
+  build-claude-plugin:
+    desc: "Build a Claude Code plugin from an extension (task build-claude-plugin EXT=hello-world)"
+    cmd: bash {{.REPO_DIR}}/scripts/build-claude-plugin.sh {{.REPO_DIR}}/extensions/{{.EXT}}
+
+  install-claude-plugin:
+    desc: "Install a Claude Code plugin (task install-claude-plugin EXT=hello-world)"
+    cmd: bash {{.REPO_DIR}}/scripts/install-claude-plugin.sh {{.EXT}}
+
+  # --- Community component build ---
+
+  build-components:
+    desc: Build all community components for both Gemini CLI and Claude Code
+    preconditions:
+      - sh: command -v yq >/dev/null 2>&1
+        msg: "yq is required. Install with: brew install yq"
+    cmd: bash {{.REPO_DIR}}/scripts/build-components.sh --target all
+
+  build-components-gemini:
+    desc: Build community components for Gemini CLI only
+    preconditions:
+      - sh: command -v yq >/dev/null 2>&1
+        msg: "yq is required. Install with: brew install yq"
+    cmd: bash {{.REPO_DIR}}/scripts/build-components.sh --target gemini
+
+  build-components-claude:
+    desc: Build community components for Claude Code only
+    preconditions:
+      - sh: command -v yq >/dev/null 2>&1
+        msg: "yq is required. Install with: brew install yq"
+    cmd: bash {{.REPO_DIR}}/scripts/build-components.sh --target claude
+
+  check-components:
+    desc: Check that generated community components match source (drift detection)
+    preconditions:
+      - sh: command -v yq >/dev/null 2>&1
+        msg: "yq is required. Install with: brew install yq"
+    cmd: bash {{.REPO_DIR}}/scripts/build-components.sh --target all --check
+
+  test-components:
+    desc: Test the build-components canonical_repo validator
+    cmd: bash {{.REPO_DIR}}/scripts/test-build-components.sh
+
+  # --- Linting ---
+
+  lint-markdown:
+    desc: Check all Markdown files for lint compliance
+    preconditions:
+      - sh: command -v markdownlint >/dev/null 2>&1
+        msg: "markdownlint-cli is required. Install with: npm install -g markdownlint-cli"
+    cmd: markdownlint "**/*.md" --ignore node_modules --ignore extension-skeleton
+
+  fix-markdown:
+    desc: Auto-fix Markdown formatting issues
+    preconditions:
+      - sh: command -v markdownlint >/dev/null 2>&1
+        msg: "markdownlint-cli is required. Install with: npm install -g markdownlint-cli"
+    cmd: markdownlint "**/*.md" --ignore node_modules --ignore extension-skeleton --fix
+
+  # --- Transcript Management ---
+
+  prune-transcripts:
+    desc: "Prune old transcripts from MemPalace (task prune-transcripts -- --days 30 [--apply])"
+    cmd: bash {{.REPO_DIR}}/scripts/prune-transcripts.sh {{.CLI_ARGS}}
+
+  # --- Harness Feedback Loop ---
+
+  harness-curate:
+    desc: "Run the Harness Curator (task harness-curate -- [--apply | --from-stdin])"
+    cmd: bash {{.REPO_DIR}}/community-config/skills/harness-curator/scripts/curate.sh {{.CLI_ARGS}}
+
+  test-harness-curate:
+    desc: "Smoke-test the Harness Curator against the bundled fixture"
+    cmd: bash {{.REPO_DIR}}/community-config/skills/harness-curator/scripts/test.sh
+
+  check-skill-versions:
+    desc: "Enforce provenance.version bump on changed skill/agent sources (local mirror of the CI guard)"
+    cmd: bash {{.REPO_DIR}}/scripts/check-skill-versions.sh

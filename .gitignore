@@ -1,0 +1,30 @@
+# System files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+dist/
+dist-claude-plugin/
+build/
+
+# Environment
+.env
+.env.local
+
+# Personal configuration (not committed)
+config/PROFILE.md
+config/SOUL.md
+
+# Claude Code local settings (per-user, not committed)
+.claude/settings.local.json
+CLAUDE.local.md

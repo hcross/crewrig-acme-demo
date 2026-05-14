@@ -1,0 +1,81 @@
+name: Build & Validate
+
+on:
+  pull_request:
+    branches: [main, "release/**"]
+  push:
+    branches: [main, "release/**"]
+    tags-ignore:
+      - "**"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build all extensions
+        run: npm run build --workspaces --if-present
+
+  check-components:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Check community component drift
+        run: bash scripts/build-components.sh --target all --check
+
+      - name: Test build-components validator
+        run: bash scripts/test-build-components.sh
+
+  lint-markdown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install markdownlint
+        run: npm install -g markdownlint-cli
+
+      - name: Lint Markdown files
+        run: markdownlint "**/*.md" --ignore node_modules --ignore extension-skeleton --ignore communication
+
+  test-harness-curate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Smoke-test harness curator
+        run: bash community-config/skills/harness-curator/scripts/test.sh
+
+  check-skill-versions:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so the base ref resolves
+
+      - name: Enforce version bump on changed skill/agent sources
+        env:
+          BASE_REF: origin/${{ github.event.pull_request.base.ref }}
+        run: bash scripts/check-skill-versions.sh

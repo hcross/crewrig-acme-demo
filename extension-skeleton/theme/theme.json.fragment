@@ -1,0 +1,15 @@
+{
+  "gemini": {
+    "themes": [
+      {
+        "name": "${SKELETON_NAME}-dark",
+        "colors": {
+          "primary": "#00adb5",
+          "secondary": "#ff2e63",
+          "background": "#222831",
+          "foreground": "#eeeeee"
+        }
+      }
+    ]
+  }
+}
