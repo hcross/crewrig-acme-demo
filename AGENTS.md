@@ -83,6 +83,12 @@ CLI and equivalent), the following three tools are **mandatory**:
    artifacts, and unblock teammates. All cross-agent communication flows
    through this tool — never through plain text replies.
 
+**Single-source brief rule**: The `Agent` spawn prompt is the
+authoritative brief — it must be self-contained because spawned agents
+inherit no conversation context. Use `TaskCreate` for tracking only:
+its `description` should be a one-liner (e.g. `"Implement feature X — full brief in Agent prompt"`), not a duplicate of the Agent prompt. Never write the same
+brief in both places.
+
 ### On CLIs without team support (e.g. Gemini CLI)
 
 When the harness does not expose `TeamCreate` / `TaskCreate` /
