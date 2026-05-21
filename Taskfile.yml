@@ -72,6 +72,14 @@ tasks:
     desc: "Remove a component from ~/.gemini (task unlink-component TYPE=skills NAME=my-skill)"
     cmd: bash {{.REPO_DIR}}/scripts/unlink-component.sh {{.TYPE}} {{.NAME}}
 
+  install-copilot-component:
+    desc: "Install a Copilot component (task install-copilot-component TYPE=skills NAME=my-skill)"
+    cmd: bash {{.REPO_DIR}}/scripts/manage-copilot-component.sh install {{.TYPE}} {{.NAME}}
+
+  link-copilot-component:
+    desc: "Link a Copilot component (task link-copilot-component TYPE=skills NAME=my-skill)"
+    cmd: bash {{.REPO_DIR}}/scripts/manage-copilot-component.sh link {{.TYPE}} {{.NAME}}
+
   install-deps:
     desc: Install npm dependencies for all extensions
     cmd: npm install
@@ -155,10 +163,33 @@ tasks:
     desc: "Install a Claude Code plugin (task install-claude-plugin EXT=hello-world)"
     cmd: bash {{.REPO_DIR}}/scripts/install-claude-plugin.sh {{.EXT}}
 
+  # --- GitHub Copilot CLI tasks ---
+
+  setup-copilot-interactive:
+    desc: Interactive GitHub Copilot CLI setup (workspace settings + optional transcript hooks)
+    preconditions:
+      - sh: command -v fzf >/dev/null 2>&1
+        msg: "fzf is required. Install with: brew install fzf (macOS) or apt-get install fzf (Linux)"
+    cmd: bash {{.REPO_DIR}}/scripts/setup-copilot-interactive.sh
+
+  import-copilot-history:
+    desc: Backfill MemPalace with pre-existing GitHub Copilot CLI transcripts from ~/.copilot/session-state (idempotent)
+    preconditions:
+      - sh: command -v fzf >/dev/null 2>&1
+        msg: "fzf is required. Install with: brew install fzf (macOS) or apt-get install fzf (Linux)"
+    cmd: bash {{.REPO_DIR}}/scripts/import-copilot-history.sh
+
+  build-components-copilot:
+    desc: Build community components for GitHub Copilot CLI only
+    preconditions:
+      - sh: command -v yq >/dev/null 2>&1
+        msg: "yq is required. Install with: brew install yq"
+    cmd: bash {{.REPO_DIR}}/scripts/build-components.sh --target copilot
+
   # --- Community component build ---
 
   build-components:
-    desc: Build all community components for both Gemini CLI and Claude Code
+    desc: Build all community components for Gemini CLI, Claude Code, and GitHub Copilot CLI
     preconditions:
       - sh: command -v yq >/dev/null 2>&1
         msg: "yq is required. Install with: brew install yq"
