@@ -87,3 +87,96 @@ offer_mempalace_install() {
   echo "  MemPalace installed."
   return 0
 }
+
+# install_chroma_daemon <repo_dir>
+#
+# Installs and starts the shared ChromaDB HTTP daemon supervisor (issue #98,
+# ADR 0006). Idempotent — re-running on an already-loaded unit is a no-op.
+#
+# On macOS: copies config/launchd/com.mempalace.chroma-server.plist to
+#           ~/Library/LaunchAgents/ and loads it via launchctl.
+# On Linux: copies config/systemd/mempalace-chroma-server.service to
+#           ~/.config/systemd/user/ and enables+starts it via systemctl --user.
+#
+# After install, runs scripts/status-chroma-server.sh to confirm the daemon
+# is healthy before returning. Exits 1 if the daemon fails to come up — the
+# wrapper's fail-loud contract requires the daemon to be reachable before
+# any MCP entry is registered.
+install_chroma_daemon() {
+  local repo_dir="$1"
+  local os
+  os="$(uname -s)"
+  echo ""
+  echo "Installing shared ChromaDB HTTP daemon supervisor (issue #98)..."
+  case "$os" in
+    Darwin)
+      local plist_src="$repo_dir/config/launchd/com.mempalace.chroma-server.plist"
+      local plist_dst="$HOME/Library/LaunchAgents/com.mempalace.chroma-server.plist"
+      if [ ! -f "$plist_src" ]; then
+        echo "  ERROR: $plist_src missing — daemon supervisor unit not shipped."
+        return 1
+      fi
+      mkdir -p "$HOME/Library/LaunchAgents"
+      # Substitute placeholders. The plist on disk is user-agnostic
+      # (no hardcoded $HOME) — we materialise it here with the
+      # detected mempalace interpreter and chroma binary so the launchd
+      # agent runs against the right venv.
+      local pipx_py chroma_bin mempalace_home
+      pipx_py="$(detect_mempalace_python || true)"
+      if [ -z "$pipx_py" ]; then
+        echo "  ERROR: cannot detect mempalace pipx python — install mempalace first."
+        return 1
+      fi
+      chroma_bin="$(dirname "$pipx_py")/chroma"
+      if [ ! -x "$chroma_bin" ]; then
+        echo "  ERROR: chroma binary not found at $chroma_bin — run: pipx inject mempalace 'chromadb>=1.5.9'"
+        return 1
+      fi
+      mempalace_home="$HOME/.mempalace"
+      sed \
+        -e "s|__MEMPALACE_HOME__|${mempalace_home}|g" \
+        -e "s|__PIPX_PYTHON__|${pipx_py}|g" \
+        -e "s|__CHROMA_BIN__|${chroma_bin}|g" \
+        "$plist_src" > "$plist_dst"
+      echo "  Installed: $plist_dst"
+      if launchctl list | grep -q com.mempalace.chroma-server; then
+        echo "  launchd agent already loaded — skipping load."
+      else
+        launchctl load -w "$plist_dst" \
+          && echo "  Loaded launchd agent: com.mempalace.chroma-server" \
+          || { echo "  ERROR: launchctl load failed."; return 1; }
+      fi
+      ;;
+    Linux)
+      local svc_src="$repo_dir/config/systemd/mempalace-chroma-server.service"
+      local svc_dst="$HOME/.config/systemd/user/mempalace-chroma-server.service"
+      if [ ! -f "$svc_src" ]; then
+        echo "  ERROR: $svc_src missing — daemon supervisor unit not shipped."
+        return 1
+      fi
+      mkdir -p "$HOME/.config/systemd/user"
+      cp "$svc_src" "$svc_dst"
+      echo "  Installed: $svc_dst"
+      systemctl --user daemon-reload \
+        && systemctl --user enable --now mempalace-chroma-server \
+        && echo "  Enabled and started: mempalace-chroma-server.service" \
+        || { echo "  ERROR: systemctl --user enable --now failed."; return 1; }
+      ;;
+    *)
+      echo "  ERROR: unsupported OS '$os' — install the daemon manually."
+      return 1
+      ;;
+  esac
+  # Health check — confirm the daemon answers on the heartbeat endpoint
+  # before any MCP entry is written.
+  if [ -x "$repo_dir/scripts/status-chroma-server.sh" ]; then
+    if ! bash "$repo_dir/scripts/status-chroma-server.sh"; then
+      echo "  ERROR: ChromaDB daemon did not become healthy."
+      echo "         Inspect logs at ~/.mempalace/chroma-server.log and retry."
+      return 1
+    fi
+  else
+    echo "  WARNING: scripts/status-chroma-server.sh not found — skipping health check."
+  fi
+  return 0
+}
