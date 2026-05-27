@@ -37,7 +37,11 @@ env_keys     = ["ANTHROPIC_API_KEY"]
 
 [cli.gemini]
 image        = "crewrig/e2e-gemini:latest"
-command      = ["gemini"]
+# Wrap with container-side timeout so the BidiGenerateContent WebSocket
+# that Gemini CLI holds open after delivering its response cannot block
+# indefinitely. The response arrives in < 10s; 120s is a generous ceiling.
+# "$@" passes through the CLI arguments (including -p and the prompt).
+command      = ["bash", "-c", "timeout 120 gemini \"$@\"", "sh"]
 command_args = []
 mounts       = [
   "${CREWRIG_E2E_HOME}/gemini:/home/agent/.gemini:ro",
@@ -45,9 +49,11 @@ mounts       = [
   # with an empty object so gemini -p falls back to GEMINI_API_KEY from env
   # instead of the oauth-personal auth type that blocks headless containers.
   # Created by `task e2e:auth:gemini` (auth-gemini.sh). See issue #136.
+  # Kept in place as a harmless fallback; OAuth token injection (issue #139)
+  # is now the primary auth path for headless containers.
   "${CREWRIG_E2E_HOME}/gemini/settings-headless.json:/home/agent/.gemini/settings.json:ro"
 ]
-env_keys     = ["GEMINI_API_KEY"]
+env_keys     = ["GEMINI_API_KEY", "GOOGLE_CLOUD_ACCESS_TOKEN", "GOOGLE_GENAI_USE_GCA"]
 
 [cli.copilot]
 # Copilot uses the env-var auth path (ADR 0002 Decision 4); no on-disk creds,

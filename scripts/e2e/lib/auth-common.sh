@@ -81,6 +81,32 @@ e2e_chown_bootstrap() {
     || e2e_die "[$cli] writability bootstrap failed — cannot chmod ${dir}."
 }
 
+# e2e_gemini_refresh_access_token [creds_file] — refresh the Gemini OAuth access
+# token from oauth_creds.json using the Google token endpoint. Prints the
+# access_token to stdout or calls e2e_die on failure.
+# oauth_creds.json fields: client_id, client_secret, refresh_token (standard
+# Google OAuth installed-app format). curl and jq are required on the host.
+e2e_gemini_refresh_access_token() {
+  local creds_file="${1:-$(e2e_cli_dir gemini)/oauth_creds.json}"
+  [[ -f "$creds_file" ]] || e2e_die "[gemini] oauth_creds.json not found at ${creds_file}"
+  command -v curl >/dev/null 2>&1 || e2e_die "[gemini] curl is required to refresh the OAuth access token"
+  local client_id client_secret refresh_token response access_token
+  client_id=$(jq -r '.client_id // empty'     "$creds_file")
+  client_secret=$(jq -r '.client_secret // empty' "$creds_file")
+  refresh_token=$(jq -r '.refresh_token // empty'  "$creds_file")
+  [[ -n "$client_id" && -n "$client_secret" && -n "$refresh_token" ]] \
+    || e2e_die "[gemini] oauth_creds.json missing client_id, client_secret, or refresh_token"
+  response=$(curl -s -X POST https://oauth2.googleapis.com/token \
+    --data-urlencode "client_id=${client_id}" \
+    --data-urlencode "client_secret=${client_secret}" \
+    --data-urlencode "refresh_token=${refresh_token}" \
+    --data-urlencode "grant_type=refresh_token")
+  access_token=$(printf '%s' "$response" | jq -r '.access_token // empty')
+  [[ -n "$access_token" ]] \
+    || e2e_die "[gemini] token refresh failed: $(printf '%s' "$response" | jq -r '.error_description // .error // "unknown error"')"
+  printf '%s' "$access_token"
+}
+
 # e2e_auth_ready <cli> — return 0 if the CLI can be exercised non-interactively
 # in an e2e run, 78 (SKIP convention) otherwise. Used by the runner to decide
 # whether to invoke a (cli, scenario) pair or emit a TAP `# SKIP unconfigured`
