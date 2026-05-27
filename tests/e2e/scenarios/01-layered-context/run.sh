@@ -132,11 +132,19 @@ docker_argv+=(
   printf '\n'
 } > "${E2E_REPORT_DIR}/invocation.txt"
 
+_probe_rc=0
 if ! "${docker_argv[@]}" \
       >"${E2E_REPORT_DIR}/probe.stdout" \
       2>"${E2E_REPORT_DIR}/probe.stderr"
 then
-  sub_emit not_ok "docker run probe exited non-zero"
+  _probe_rc=$?
+  if [[ "$E2E_CLI" == "gemini" && "$_probe_rc" -eq 124 ]]; then
+    : # Expected: gemini -p holds the BidiGenerateContent WebSocket open after
+      # responding; the container-side timeout kills it. The answer file is
+      # the authoritative success signal — checked by the assertions below.
+  else
+    sub_emit not_ok "docker run probe exited non-zero (exit ${_probe_rc})"
+  fi
 fi
 
 # The probe.prompt instructs the CLI to write /out/answer.txt. Fall back
