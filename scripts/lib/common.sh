@@ -168,9 +168,23 @@ install_chroma_daemon() {
       ;;
   esac
   # Health check — confirm the daemon answers on the heartbeat endpoint
-  # before any MCP entry is written.
+  # before any MCP entry is written. The launchd/systemd-managed process
+  # needs a few seconds to bind its socket, so poll with a 15s budget
+  # instead of one-shotting status-chroma-server.sh (see issue #138).
   if [ -x "$repo_dir/scripts/status-chroma-server.sh" ]; then
-    if ! bash "$repo_dir/scripts/status-chroma-server.sh"; then
+    local deadline=$((SECONDS + 15))
+    local healthy=0
+    while [ "$SECONDS" -lt "$deadline" ]; do
+      if bash "$repo_dir/scripts/status-chroma-server.sh" >/dev/null 2>&1; then
+        healthy=1
+        break
+      fi
+      sleep 0.3
+    done
+    if [ "$healthy" -ne 1 ]; then
+      # Surface the status script's diagnostics (stdout + stderr) so the user
+      # sees the real failure cause before the generic ERROR line.
+      bash "$repo_dir/scripts/status-chroma-server.sh" || true
       echo "  ERROR: ChromaDB daemon did not become healthy."
       echo "         Inspect logs at ~/.mempalace/chroma-server.log and retry."
       return 1
