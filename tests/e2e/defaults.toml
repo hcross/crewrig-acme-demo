@@ -37,20 +37,26 @@ env_keys     = ["ANTHROPIC_API_KEY"]
 
 [cli.gemini]
 image        = "crewrig/e2e-gemini:latest"
-# Container-side bootstrap: copy the :ro credentials bundle into a writable
-# location owned by `agent`, then exec gemini. Lets ProjectRegistry.save()
-# perform its atomic-write to projects.json (see issue #147 §5 and the
-# #148 design note Decision 2). "$@" forwards CLI arguments (including
-# -p and the prompt); the trailing "sh" sets argv[0] for bash -c.
+# Container-side bootstrap (issue #148 Decision 5 Revision 3): copy the
+# auth bundle + layered-context rules into a writable home owned by
+# `agent`, then patch settings.json.context.fileName with the dynamic
+# basename manifest so `gemini -p` autoloads the 00–60 rules. The
+# sandboxed login's settings.json carries only the `security` block;
+# without this manifest patch, rules sit inert in the container and
+# the CLI hallucinates instead of reading PROFILE.md (tester evidence
+# at commit 6260e5e). jq is shipped in crewrig/e2e-base (/usr/bin/jq).
 #
-# `set -e` makes mkdir/cp fatal (Low-1 from #148 security review — closes
-# the precedence trap where `|| true` swallowed cp failures). `cp -a`
-# preserves modes so oauth_creds.json stays 0600 (Med-3). `chown` keeps a
-# scoped tolerance for Docker-Desktop-macOS where it is expected to fail
-# with EPERM; other errors surface to stderr for diagnosis (Low-3).
+# `set -e` makes mkdir/cp fatal. `cp -a` preserves modes so
+# oauth_creds.json stays 0600 (Med-3 from the #148 security review).
+# The `[ -n "$M" ]` guard means a soft-skipped rules copy also skips
+# the manifest patch — no stale context.fileName pointing at absent
+# files. `> tmp && mv` is atomic: a jq error mid-pipeline leaves the
+# bundle's settings.json untouched. Per Rev 3, chown collapses back to
+# `|| true` (the bounded-ugliness threshold favours readability now
+# the chain is longer).
 command      = [
   "bash", "-c",
-  "set -e; mkdir -p /home/agent/.gemini; cp -a /run/gemini-creds/. /home/agent/.gemini/; cp -a /run/gemini-rules/[0-6]0_*.md /home/agent/.gemini/ 2>/dev/null || echo '[bootstrap] no layered-context rules found at /run/gemini-rules — scenario LLM-judge will surface the gap' >&2; chown_err=$(chown -R agent:agent /home/agent/.gemini 2>&1 >/dev/null) || case \"$chown_err\" in *\"Operation not permitted\"*|*\"not super-user\"*|*\"not permitted\"*) : ;; *) printf 'chown warning: %s\\n' \"$chown_err\" >&2 ;; esac; exec gemini \"$@\"",
+  "set -e; D=/home/agent/.gemini; mkdir -p $D && cp -a /run/gemini-creds/. $D/ && { cp -a /run/gemini-rules/[0-6]0_*.md $D/ 2>/dev/null || echo '[bootstrap] no layered-context rules found at /run/gemini-rules/ — gemini/01 will likely fail' >&2; } && M=$(ls $D/[0-6]0_*.md 2>/dev/null | xargs -r -n1 basename | jq -R . | jq -s .) && [ \"$M\" != \"[]\" ] && jq --argjson m \"$M\" '.context.fileName = $m' $D/settings.json > $D/settings.json.tmp && mv $D/settings.json.tmp $D/settings.json; chown -R agent:agent $D 2>/dev/null || true; exec gemini \"$@\"",
   "sh"
 ]
 command_args = []
