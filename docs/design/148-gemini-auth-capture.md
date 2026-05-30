@@ -6,20 +6,33 @@ Grounded entirely on `docs/research/gemini-cli-auth-blackbox.md` (#147). Section
 
 ---
 
-## Decision 1 — Capture scope: full top-level minus a denylist
+## Decision 1 — Capture scope: whatever the sandboxed login writes, minus a denylist
 
-**Choice.** Replace the curated allowlist in `auth-gemini.sh` by a **deny-listed `cp -R`** of `~/.gemini/` into `~/.crewrig-e2e/gemini/`, excluding only:
+> **Revision (post-developer-feedback).** The original wording of this decision implied a `cp -R "$HOME/.gemini/."` from the developer's host Gemini directory into `$DIR`. That reading is incorrect and was retracted. The interactive login MUST stay sandboxed — the docker mount remains `-v "${DIR}:/home/agent/.${CLI}"` (as in the pre-#148 script), so the test-account login writes into `$DIR` and never touches the developer's host `~/.gemini`. The "capture" is therefore not a copy at all; it is **what the sandboxed login produced**, with a small denylist applied as cleanup of leftover files from previous runs.
 
-- `antigravity-browser-profile/` (~18k Chromium cache files — §2)
-- `antigravity/` (sibling browser profile, observed in host inventory)
-- `tmp/` (transient session scratch — §2)
-- `*.bak`, `*.ori`, `*.orig` (Bucket D leftovers — §2.4)
+**Choice.**
 
-**Why.** #147 §6.1 #1 explicitly recommends this, and §2.1 / §7 admit four files (`google_account_id`, `gemini-credentials.json`, `extension_integrity.json`, `acknowledgments/agents.json`) plus `history/` are present in working hosts but were never individually load-bearing-tested. Under-capture risks the same silent-hang class of bug we just spent #147 diagnosing. Over-capture cost is bytes on disk + a few extra lines; the script runs once per developer per machine.
+1. Keep the original sandboxed login mount: `docker run -v "${DIR}:/home/agent/.${CLI}" "$IMAGE" gemini`. Login writes directly into `$DIR`.
+2. After the login container exits, apply the **denylist as cleanup** to `$DIR`:
+   - `antigravity-browser-profile/` (~18k Chromium cache files if browser is seeded — §2)
+   - `antigravity/` (sibling browser profile)
+   - `tmp/` (transient session scratch — §2)
+   - `*.bak`, `*.ori`, `*.orig` (Bucket D leftovers — §2.4)
+3. Take **no action** on `history/`, MCP configs, or `.env` — these will not appear in a sandboxed login because the sandbox has no prior history, no installed MCP servers, and no user `.env`. If a future sandbox seeds any of them, re-evaluate then.
 
-A denylist is more robust than extending the allowlist because future Gemini CLI versions may add new auth artifacts — the denylist captures them by default, the allowlist would silently miss them.
+**Why.** Three points settle the question:
 
-**Blast radius for developer.** Replace the `[ -f ... ]` post-flight checks for the full file set; keep `oauth_creds.json` + `settings.json` as the minimum guards (anything else missing is a host weirdness, not a login-flow failure). API-key contamination check still runs against `oauth_creds.json` and `settings.json` only.
+- **Privacy is non-negotiable.** The pre-#148 design isolated the test account from the developer's personal Google session. Breaking that isolation is a behaviour regression, not a refactor.
+- **The sandboxed bundle is empirically sufficient.** #147 §4.2 Test C and Test D both passed using a bundle produced by the sandboxed login (mounted `:ro`, copied container-side, `oauth-personal` headless). The four files I originally worried about (`gemini-credentials.json`, `extension_integrity.json`, `acknowledgments/agents.json`, `google_account_id`) are absent from the sandboxed `$DIR` because they reflect **host-side** state (extension installs, machine-bound encrypted blobs, prior consent) — state that is equally absent from the e2e scenario container. If they are not in `$DIR`, they cannot be load-bearing for the scenario. Decision 7 #1 (tester re-runs Test E on the stable mount) closes the loop empirically.
+- **Future-proofing still works.** The denylist captures whatever the sandboxed login writes *by default* — if a future Gemini CLI version writes new artifacts during login, they land in `$DIR` automatically. This is the original future-proofing intent; only the source location was wrong.
+
+**Blast radius for developer.**
+
+- Revert the mount in `auth-gemini.sh` back to `-v "${DIR}:/home/agent/.${CLI}"`.
+- Remove the `cp -Rp "${HOST_GEMINI}/." "${DIR}/"` line and the `HOST_GEMINI` variable.
+- Keep the denylist `rm -rf` + `find ... -delete` block; it applies to `$DIR` as cleanup (the directory may carry leftovers from a previous `task e2e:auth:gemini` run).
+- Keep the `chmod 700 "$DIR"` and the broadened API-key grep — both remain correct under the sandboxed model.
+- Keep the post-flight `oauth_creds.json` + `settings.json` existence check; anything else missing is still a host weirdness, not a login-flow failure.
 
 ---
 
@@ -154,5 +167,5 @@ The tester's brief beyond `task e2e:test passes`:
 
 ## Open concerns for team-lead
 
-- **`cp -R` of `history/`** copies any historical conversation transcripts from the developer's host into `~/.crewrig-e2e/gemini/`. This is a privacy consideration the developer should call out in the script's final warning. Recommend adding `history/` to the denylist if the load-bearing test (Decision 7 #1) shows the directory is not actually consulted at startup — saves bytes and removes a privacy surface. Cannot decide unilaterally because §4.2 Test E was inconclusive in #147; defer the final decision to the tester's empirical result.
-- **API-key grep currently scans only `oauth_creds.json` + `settings.json`.** With broader capture, consider extending the grep to walk the full `$DIR` for `GEMINI_API_KEY|GOOGLE_API_KEY` patterns. Trade-off: catches more contamination, adds runtime; recommend doing it (one-time interactive script, perf is irrelevant).
+- **`history/` privacy** is resolved by the Decision 1 revision: the sandboxed login produces no prior history, so nothing to leak. If the tester (Decision 7 #1) finds the e2e scenario does write a `history/` entry at runtime, that entry is per-run and per-scenario, not the developer's personal transcript — no action needed.
+- **API-key grep** has been broadened to walk the full `$DIR` (developer's implementation `grep -rlE ... "$DIR"` is correct). Keep as-is.
