@@ -71,3 +71,38 @@ Report dir: tests/e2e/reports/20260530T163700Z-7a03/gemini/01-layered-context/
 
 Defect reported to team-lead — same scenario-script file as the prior
 round, different forgotten edit.
+
+---
+
+## Re-run at commit 6fcac29 (expand_mount factored into shared lib)
+
+`task e2e:test -- --scenario 01-layered-context --cli gemini`. The
+`${HOME}` token now interpolates correctly: docker invocation shows
+`-v /Users/hoanicross/.gemini:/run/gemini-rules:ro`. Container
+bootstrap runs and copies all seven layered-context rules into
+`/home/agent/.gemini/` (verified by an isolated bootstrap repro:
+00_SOUL.md, 10_USER_LEVEL.md, 20_ORGANIZATION.md, 30_USER_PROFILE.md,
+40_USER_EXPERTISE.md, 50_USER_TEAM.md, 60_TOOLS.md). `gemini -p`
+launches and answers.
+
+Scenario-level wall-clock: extractable now. The targeted run took
+~docker-startup + bootstrap + gemini -p; full scenario wall-clock
+from runner perspective < 15 s. Under Decision 7 the 120 s timeout
+class stays gone.
+
+Outcome: `out/answer.txt` = "Zurich" — model hallucinated. Acceptance
+`[Nn]antes` not met. probe.stderr shows the model attempted to read
+`/home/agent/.gemini` directly and was blocked by the gemini CLI's
+workspace allowlist (`Path not in workspace: Attempted path
+"/home/agent/.gemini" resolves outside the allowed workspace
+directories: /home/agent/workspace`). The container-side bundle is
+correct; the **context-loading wiring** is missing — settings.json
+contains only `security.auth.selectedType` and no `context` block,
+and there is no `GEMINI.md` entry point at `~/.gemini/` or in
+`/home/agent/workspace`. Without one of those, gemini does not load
+the numbered rule files as in-context.
+
+Report dir: tests/e2e/reports/20260530T164640Z-1fbe/gemini/01-layered-context/
+
+Defect surfaced to team-lead. NOT in tester scope to wire the
+context-loading mechanism.
