@@ -54,23 +54,26 @@ they are clearly unrelated to CLI auth:
 
 The remaining top-level entries fall into four buckets.
 
-### 2.1 Bucket A — Identity & credentials (candidate load-bearing)
+### 2.1 Bucket A — Identity & credentials (load-bearing status verified in #148)
 
-Empirically confirmed load-bearing in this analysis: `oauth_creds.json` and
-`settings.json` (Test E without them returns `Please set an Auth method`).
-The other four files in the table below ship in the host's working
-`~/.gemini/` but have not been individually load-bearing-tested — #148 will
-narrow the minimal set during implementation.
+Re-run of Test E on the now-stable `/run/gemini-creds` mount path (#148
+commit, see `tests/e2e/reports/148/test-e-subsets.md`) narrowed the
+minimal load-bearing set for `gemini -p` under `crewrig/e2e-gemini:latest`
+to **three files**: `oauth_creds.json`, `settings.json`, and
+`trustedFolders.json`. The other four files in the table below either
+ship in the bundle but are not consulted by `gemini -p`, or never reach
+the bundle in the first place. The `Status` column replaces the prior
+`Captured today?` qualifier with the empirically verified outcome.
 
-| File | Mode | Schema (keys) | Captured today? |
+| File | Mode | Schema (keys) | Status (verified in #148) |
 |---|---|---|---|
-| `oauth_creds.json` | `0600` | `access_token`, `refresh_token`, `id_token`, `expiry_date`, `scope`, `token_type` | ✅ |
-| `settings.json` | `0600` | `$schema`, `security.auth.selectedType`, `context`, `hooks`, `mcpServers`, `privacy`, `general` | ✅ (then shadowed by `settings-headless.json={}`) |
-| `google_account_id` | `0644` | 21-byte numeric Google user ID | ❌ |
-| `google_accounts.json` | `0644` | accounts map | ✅ |
-| `installation_id` | `0644` | 36-byte UUID | ✅ |
-| `gemini-credentials.json` | `0600` | opaque hex blob (encrypted; format `<iv>:<salt>:<ciphertext>`) | ❌ |
-| `trustedFolders.json` | `0600` | folder allowlist | ✅ |
+| `oauth_creds.json` | `0600` | `access_token`, `refresh_token`, `id_token`, `expiry_date`, `scope`, `token_type` | ✅ load-bearing (minimal set) |
+| `settings.json` | `0600` | `$schema`, `security.auth.selectedType`, `context`, `hooks`, `mcpServers`, `privacy`, `general` | ✅ load-bearing (minimal set) |
+| `trustedFolders.json` | `0600` | folder allowlist | ✅ load-bearing (minimal set) — image CLI enforces trusted-folder mode; absence triggers `Gemini CLI is not running in a trusted directory` exit-1 |
+| `google_account_id` | `0644` | 21-byte numeric Google user ID | ⚪ absent from sandboxed login bundle; not consulted by `gemini -p` (verified by passing test without it) |
+| `google_accounts.json` | `0644` | accounts map | ⚪ shipped but not load-bearing (S2 vs S5 elimination) |
+| `installation_id` | `0644` | 36-byte UUID | ⚪ shipped but not load-bearing (S3 vs S5 elimination) |
+| `gemini-credentials.json` | `0600` | opaque hex blob (encrypted; format `<iv>:<salt>:<ciphertext>`) | ⚪ absent from sandboxed login bundle; scenario passes without it |
 
 ### 2.2 Bucket B — Runtime mutables (`gemini -p` WRITES these every run)
 
@@ -145,6 +148,8 @@ tests are sufficient.
 | **C** | `~/.crewrig-e2e/gemini` `:ro` at `/run/gemini-creds`; copied to `/home/agent/.gemini` inside container; `chown agent:agent` | same | **EXIT=0**, "Pong" in seconds | ✅ fix pattern works |
 | **D** | same as C | **no env injection** | **EXIT=0**, "White" | OAuth token refresh is vestigial — `oauth-personal` works headless when the bundle is writable. |
 | **E** | minimal bundle (`oauth_creds.json` + `settings.json` only) | none | inconclusive — Docker Desktop fs sharing did not propagate `/tmp/gem-min/` into the container | To be re-run inside #148 with a stable mount path. |
+| **E′** | minimal bundle re-run on the `/run/gemini-creds` stable mount inside `$HOME/tmp/gem-148/` (#148 closure of Test E) | none | **EXIT=0** only when `trustedFolders.json` is included; `oauth_creds.json + settings.json` alone returns `Gemini CLI is not running in a trusted directory` exit 1 | ✅ minimal load-bearing set narrowed to `{oauth_creds.json, settings.json, trustedFolders.json}`. See `tests/e2e/reports/148/test-e-subsets.md` and §2.1. |
+| **F** | bundle as in C + `~/.gemini/[0-6]0_*.md` mounted at `/run/gemini-rules:ro`, bootstrap-time patch of `settings.json.context.fileName` to enumerate the manifest, then `exec gemini -p` (#148 commit `fd196d4`) | none | **EXIT=0**, "Nantes" — LLM in-context loads the layered rules and answers from `30_USER_PROFILE.md` | ✅ `settings.json.context.fileName` is the autoload manifest contract — pre-#147 unknown (cf. §7 read-side trace gap). Empty manifest or absent `context` block ⇒ rules not autoloaded ⇒ model hallucinates (verified empirically: "Zurich" hallucination at `6fcac29` before manifest wiring). |
 
 ### 4.3 Diagnostic value of error messages
 

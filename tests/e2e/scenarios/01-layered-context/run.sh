@@ -35,6 +35,8 @@ source "${E2E_LIB_DIR}/assert.sh"
 source "${E2E_LIB_DIR}/structural.sh"
 # shellcheck source=../../lib/llm_judge.sh
 source "${E2E_LIB_DIR}/llm_judge.sh"
+# shellcheck source=../../lib/expand.sh
+source "${E2E_LIB_DIR}/expand.sh"
 
 SCENARIO_TAP="${E2E_REPORT_DIR}/scenario.tap"
 : > "$SCENARIO_TAP"
@@ -72,8 +74,6 @@ mapfile -t _cli_cmd < <(jq -r --arg c "$E2E_CLI" '.cli[$c].command[]' "$E2E_EFFE
 mapfile -t _cli_mounts < <(jq -r --arg c "$E2E_CLI" '.cli[$c].mounts // [] | .[]' "$E2E_EFFECTIVE_JSON")
 mapfile -t _cli_env_keys < <(jq -r --arg c "$E2E_CLI" '.cli[$c].env_keys // [] | .[]' "$E2E_EFFECTIVE_JSON")
 
-expand_mount() { printf '%s' "${1/\$\{CREWRIG_E2E_HOME\}/${E2E_CREWRIG_E2E_HOME}}"; }
-
 probe_argv=("${_cli_cmd[@]}" -p)
 
 PROBE_PROMPT="$(cat "${E2E_SCENARIO_DIR}/probe.prompt")"
@@ -108,9 +108,22 @@ esac
 
 docker_argv=(
   docker run --rm --name "$container_name"
-  -v "${rules_dir}:${rules_mount_target}:${rules_mount_mode}"
   -v "${host_out}:/out"
 )
+# Per-CLI rules mount. Gemini intentionally has NO host-side rules mount
+# here: the defaults.toml [cli.gemini].command bootstrap populates
+# /home/agent/.gemini from /run/gemini-creds + /run/gemini-rules
+# in-container (issue #148 Decision 5 Revision 2). Adding a third bind-
+# mount at /home/agent/.gemini would collide with the bootstrap's
+# `cp -a /run/gemini-creds/. /home/agent/.gemini/` self-source.
+case "$E2E_CLI" in
+  claude|copilot)
+    docker_argv+=(-v "${rules_dir}:${rules_mount_target}:${rules_mount_mode}")
+    ;;
+  gemini)
+    : # No host-side rules mount — bootstrapped via defaults.toml. See above.
+    ;;
+esac
 # Mounts from effective config (e.g. Ollama keypair dir from local.toml).
 for _m in "${_cli_mounts[@]}"; do
   docker_argv+=(-v "$(expand_mount "$_m")")
