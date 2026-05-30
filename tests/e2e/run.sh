@@ -19,6 +19,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # shellcheck source=../../scripts/e2e/lib/auth-common.sh
 source "${REPO_DIR}/scripts/e2e/lib/auth-common.sh"
+# shellcheck source=lib/expand.sh
+source "${SCRIPT_DIR}/lib/expand.sh"
+# Export the bundle root once so expand_mount (shared lib) sees it from
+# both this process and any subshell — matches the env the runner already
+# exports to scenarios. Falls back to e2e_e2e_home which honours
+# CREWRIG_E2E_HOME / defaults to "$HOME/.crewrig-e2e".
+export E2E_CREWRIG_E2E_HOME="$(e2e_e2e_home)"
 
 DEFAULTS_TOML="${SCRIPT_DIR}/defaults.toml"
 LOCAL_TOML="${SCRIPT_DIR}/local.toml"
@@ -160,25 +167,10 @@ if [[ ${#SELECTED_SCENARIOS[@]} -eq 0 ]]; then
   exit 0
 fi
 
-# --------------------------------------------------------------------------
-# Expand env-var templates inside mount strings. Recognised tokens:
-#   ${CREWRIG_E2E_HOME} — bundle root (e2e_e2e_home; honours the user
-#                        override per ADR 0003).
-#   ${HOME}             — host user home, used by the gemini layered-
-#                        context rules mount (see #148 Decision 5
-#                        Revision 2 in tests/e2e/defaults.toml).
-# Adding new tokens is a config-class edit — extend the substitution
-# chain below; do not introduce arbitrary shell expansion.
-# --------------------------------------------------------------------------
-expand_mount() {
-  local raw="$1"
-  local e2e_home
-  e2e_home="$(e2e_e2e_home)"
-  # Plain string substitutions — guard against re-expansion by the shell.
-  local expanded="${raw//\$\{CREWRIG_E2E_HOME\}/$e2e_home}"
-  expanded="${expanded//\$\{HOME\}/$HOME}"
-  printf '%s\n' "$expanded"
-}
+# expand_mount is provided by tests/e2e/lib/expand.sh — sourced above so
+# both the runner and the scenario scripts share one canonical
+# implementation (see #148 commit log for the regression that motivated
+# the factor-out).
 
 # Validate that an env var name matches the safe regex. Closes the secret-
 # leakage path documented in ADR 0003 Open Risk #4.

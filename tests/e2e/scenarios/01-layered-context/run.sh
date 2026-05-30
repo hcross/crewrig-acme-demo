@@ -35,6 +35,8 @@ source "${E2E_LIB_DIR}/assert.sh"
 source "${E2E_LIB_DIR}/structural.sh"
 # shellcheck source=../../lib/llm_judge.sh
 source "${E2E_LIB_DIR}/llm_judge.sh"
+# shellcheck source=../../lib/expand.sh
+source "${E2E_LIB_DIR}/expand.sh"
 
 SCENARIO_TAP="${E2E_REPORT_DIR}/scenario.tap"
 : > "$SCENARIO_TAP"
@@ -71,8 +73,6 @@ esac
 mapfile -t _cli_cmd < <(jq -r --arg c "$E2E_CLI" '.cli[$c].command[]' "$E2E_EFFECTIVE_JSON")
 mapfile -t _cli_mounts < <(jq -r --arg c "$E2E_CLI" '.cli[$c].mounts // [] | .[]' "$E2E_EFFECTIVE_JSON")
 mapfile -t _cli_env_keys < <(jq -r --arg c "$E2E_CLI" '.cli[$c].env_keys // [] | .[]' "$E2E_EFFECTIVE_JSON")
-
-expand_mount() { printf '%s' "${1/\$\{CREWRIG_E2E_HOME\}/${E2E_CREWRIG_E2E_HOME}}"; }
 
 probe_argv=("${_cli_cmd[@]}" -p)
 
