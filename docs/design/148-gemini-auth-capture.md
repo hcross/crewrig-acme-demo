@@ -100,6 +100,16 @@ The string is ugly. We accept the ugliness; it is bounded and self-documenting i
 > 3. **Privacy** → **trade-off accepted, documented**. The `:ro` surface widens (entire `~/.gemini` visible read-only inside the container at `/run/gemini-rules`), but the selective `cp -a /run/gemini-rules/[0-6]0_*.md` keeps personal artifacts out of `/home/agent/.gemini`. `gemini` itself never reads from `/run/gemini-rules/` — only the bootstrap does. Residual risk: a malicious MCP server inside the test container could `cat /run/gemini-rules/oauth_creds.json`. In the e2e harness running the developer's own trusted binaries, this is theoretical; the container is short-lived and the developer authored everything inside it. Flag in the bootstrap comment so future maintainers don't widen the bootstrap's read surface without re-evaluating.
 > 4. **CI portability** → **soft-skip with warning**. `cp -a … 2>/dev/null || :` swallows the empty-glob failure; an `echo` to stderr surfaces the condition. Hard-failing the bootstrap turns a missing-rules condition into a cryptic container error; soft-skip lets the scenario's own LLM-judge assertion produce the actually-informative failure. The CI-side contract: whoever provisions CI is responsible for deploying `~/.gemini/[0-6]0_*.md` via `build-components.sh` before invoking `task e2e:test`.
 
+> **Revision 3 (post-tester-feedback, second).** Revision 2 landed and the rules now reach `/home/agent/.gemini/` correctly — but `gemini/01-layered-context` still fails. Tester's empirical evidence (probe.stderr on commit 6260e5e + host repro): `gemini -p` does **not** autoload `[0-6]0_*.md` from `~/.gemini/` based on filename alone. The autoload manifest is `settings.json.context.fileName: [<basenames>]`. The sandboxed login's `settings.json` contains only the `security` block; it has no `context` key. Result: rules sit inert in the container, `gemini` falls back to its training prior and hallucinates ("Zurich" instead of "Nantes").
+>
+> User has authorised **shape A**: generate the manifest at bootstrap time by listing the rules actually present and jq-merging `{context: {fileName: […]}}` into the bundle's `settings.json` before `exec gemini`. Rulings on the three sub-concerns:
+>
+> 1. **`jq` availability** → **use it**. Verified present in `crewrig/e2e-gemini:latest` via `crewrig/e2e-base` (`apt-get install … jq`). No Dockerfile change needed. Python fallback rejected — `jq` is the right tool, it's already there.
+> 2. **Manifest content** → **minimal, dynamically derived**. The bootstrap lists `basename`s of `/home/agent/.gemini/[0-6]0_*.md` files actually present after the rules copy. No hardcoded list, no `AGENTS.md`. Three reasons: (a) `AGENTS.md` is at the repo root and was never in scope for the rules mount; (b) listing files not present would make `gemini` complain at startup; (c) dynamic listing is robust if a future user adds `70_*.md` — the authoritative priority-file set lives on disk, not in TOML.
+> 3. **Merge strategy** → **jq-merge into the existing `settings.json`**. Preserves `security.auth.selectedType: oauth-personal` and any future keys the sandboxed login adds. Fresh-write would couple us to the current sandbox schema; one `jq` call buys forward compatibility cheap.
+>
+> Privacy posture is unchanged from Revision 2: container-side only, no new host path, no widening of the auth bundle. The bootstrap reads only from the writable `/home/agent/.gemini/` it had already populated.
+
 **Choice.** Edit `defaults.toml [cli.gemini]` only. Do **not** touch `tests/e2e/run.sh` (lines 275–284 stay as-is for #149). Keep the full `env_keys` array (`GEMINI_API_KEY`, `GOOGLE_CLOUD_ACCESS_TOKEN`, `GOOGLE_GENAI_USE_GCA`) unchanged.
 
 Resulting `[cli.gemini]` block:
@@ -120,7 +130,7 @@ image        = "crewrig/e2e-gemini:latest"
 # the privacy posture (design note Decision 5 Revision 2, concern 3).
 command      = [
   "bash", "-c",
-  "set -e; mkdir -p /home/agent/.gemini && cp -a /run/gemini-creds/. /home/agent/.gemini/ && { cp -a /run/gemini-rules/[0-6]0_*.md /home/agent/.gemini/ 2>/dev/null || echo '[bootstrap] no layered-context rules found at /run/gemini-rules/ — gemini/01 will likely fail' >&2; } && chown -R agent:agent /home/agent/.gemini 2>/dev/null || true; exec gemini \"$@\"",
+  "set -e; D=/home/agent/.gemini; mkdir -p $D && cp -a /run/gemini-creds/. $D/ && { cp -a /run/gemini-rules/[0-6]0_*.md $D/ 2>/dev/null || echo '[bootstrap] no layered-context rules found at /run/gemini-rules/ — gemini/01 will likely fail' >&2; } && M=$(ls $D/[0-6]0_*.md 2>/dev/null | xargs -n1 basename | jq -R . | jq -s .) && [ -n \"$M\" ] && jq --argjson m \"$M\" '.context.fileName = $m' $D/settings.json > $D/settings.json.tmp && mv $D/settings.json.tmp $D/settings.json; chown -R agent:agent $D 2>/dev/null || true; exec gemini \"$@\"",
   "sh"
 ]
 command_args = []
@@ -134,6 +144,18 @@ env_keys     = ["GEMINI_API_KEY", "GOOGLE_CLOUD_ACCESS_TOKEN", "GOOGLE_GENAI_USE
 **Why.** #147 §4.2 Test D proved `GOOGLE_CLOUD_ACCESS_TOKEN` injection is **vestigial** but **harmless** — removal stays in #149's scope. The second mount adds one TOML line and keeps the runner untouched, so the #149 seam (env_keys + mount path + command shape as the contract surface) is preserved. The bootstrap's `cp -a` (not `cp -R`) preserves modes, which matters for the creds bundle and matches Decision 4's posture.
 
 **Blast radius for developer.** One block rewrite in `defaults.toml` (now two mount lines + a longer `command` string). The `${HOME}` token in the second mount line MUST be interpolated by the runner the same way `${CREWRIG_E2E_HOME}` is — verify `tests/e2e/lib/toml_merge.sh` (or the equivalent path-interpolation pass in the runner) honors plain `${HOME}` substitution. If not, the developer must use the absolute path resolution already in place (the runner's `EFFECTIVE_JSON` materialisation step) and may need to add `${HOME}` to the recognised token list — a one-line change in the interpolation map, not a `run.sh` semantic change (still within Decision 5's "runner contract preserved" envelope; document it as a string-table edit, not a logic edit).
+
+**Bootstrap reading order (for the developer reading the one-liner above):**
+
+1. `D=/home/agent/.gemini` — alias to keep the rest readable.
+2. `mkdir -p $D && cp -a /run/gemini-creds/. $D/` — Decision 5 Rev 1 (creds bundle).
+3. `cp -a /run/gemini-rules/[0-6]0_*.md $D/ … || echo '[bootstrap] …' >&2` — Decision 5 Rev 2 (rules glob with soft-skip stderr warning).
+4. `M=$(ls $D/[0-6]0_*.md | xargs -n1 basename | jq -R . | jq -s .)` — Revision 3: build JSON array of basenames actually present. `jq -R .` quotes each line as a JSON string; `jq -s .` slurps into an array. Empty glob → `M=""` → next step short-circuits.
+5. `[ -n "$M" ] && jq --argjson m "$M" '.context.fileName = $m' $D/settings.json > $D/settings.json.tmp && mv $D/settings.json.tmp $D/settings.json` — Revision 3: merge manifest into bundle's `settings.json`, preserving the `security` block. Write-to-tmp + atomic rename avoids partial writes if `jq` errors mid-pipeline. The `[ -n "$M" ]` guard means a soft-skipped rules copy also skips the manifest patch (no manifest → no autoload attempt → no startup error from a stale `context.fileName` list).
+6. `chown -R agent:agent $D 2>/dev/null || true` — Decision 5 Rev 1.
+7. `exec gemini "$@"` — handoff.
+
+The one-liner is ugly. Bounded ugliness; self-documenting in context. If it grows one more step, promote to a shipped helper (Decision 2 Option B) — that threshold is "exactly one more step", not "any growth".
 
 **Additional file change — scenario script.** `tests/e2e/scenarios/01-layered-context/run.sh` currently mounts `${rules_dir}:/home/agent/.gemini:ro` for every CLI. Add a case-split: skip this mount for `gemini` (where the rules now arrive via the defaults.toml bootstrap), keep it for `claude` and `copilot` (where the scenario-level mount remains the rules delivery path). This is the minimal scenario-side change needed to unblock the bootstrap; broader unification of rules delivery across CLIs is out of scope.
 
@@ -171,7 +193,7 @@ The tester's brief beyond `task e2e:test passes`:
 ## Handoff to developer — concrete edit checklist
 
 1. **`scripts/e2e/auth-gemini.sh`** — already implemented in 79b815a + security follow-ups; per Decision 1 revision, the only remaining edits are: revert mount to `-v "${DIR}:/home/agent/.${CLI}"`, drop the `HOST_GEMINI` variable and the `cp -Rp "${HOST_GEMINI}/." "${DIR}/"` line, drop the host-precondition check. Denylist cleanup, broadened grep, `chmod 700`, mode normalisation, and warning text all stay.
-2. **`tests/e2e/defaults.toml`** — rewrite `[cli.gemini]` block per Decision 5 Revision 2 (TWO mount lines: `/run/gemini-creds` from `${CREWRIG_E2E_HOME}/gemini`, `/run/gemini-rules` from `${HOME}/.gemini`; extended bootstrap with selective `[0-6]0_*.md` copy and soft-skip stderr warning). Preserve `env_keys` unchanged.
+2. **`tests/e2e/defaults.toml`** — rewrite `[cli.gemini]` block per Decision 5 Revisions 2 + 3 (TWO mount lines: `/run/gemini-creds` from `${CREWRIG_E2E_HOME}/gemini`, `/run/gemini-rules` from `${HOME}/.gemini`; extended bootstrap with selective `[0-6]0_*.md` copy, soft-skip stderr warning, AND jq-merge of dynamic manifest into `settings.json.context.fileName`). Preserve `env_keys` unchanged.
 3. **`tests/e2e/scenarios/01-layered-context/run.sh`** — add a case-split that skips the `${rules_dir}:/home/agent/.gemini:ro` mount when the target CLI is `gemini`. Claude and Copilot keep the existing mount.
 4. **Verify `${HOME}` interpolation in the runner's TOML path-substitution pass.** If `${HOME}` is not already in the recognised token map, add it (one-line edit in the token list — NOT a runner logic change; the runner contract — env_keys + mount path + command shape — is unchanged). If it IS already recognised, no edit needed.
 5. **`docs/cli-matrix.md`** — update Row #21 and Row #22 Gemini cells per Decision 6, and extend Row #22 to mention the dual `:ro` mount (`/run/gemini-creds` for creds, `/run/gemini-rules` for layered-context rules).
