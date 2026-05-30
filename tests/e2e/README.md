@@ -57,15 +57,42 @@ scenario runner mounts read-only at execution time:
 ├── claude/
 │   ├── .credentials.json   # OAuth tokens (load-bearing)
 │   └── .claude.json        # session metadata (also required)
-├── gemini/
-│   ├── oauth_creds.json    # OAuth tokens
-│   └── settings.json       # selected auth type
+├── gemini/                 # mode 0700 — bundle holds a long-lived OAuth refresh token
+│   ├── oauth_creds.json    # OAuth tokens (load-bearing)
+│   ├── settings.json       # selected auth type (load-bearing)
+│   ├── google_accounts.json
+│   ├── google_account_id
+│   ├── installation_id
+│   ├── gemini-credentials.json
+│   ├── extension_integrity.json
+│   ├── trustedFolders.json
+│   ├── projects.json
+│   ├── state.json
+│   ├── acknowledgments/
+│   ├── history/
+│   └── …                   # full ~/.gemini minus antigravity*, tmp/, *.bak|*.ori|*.orig
 └── copilot/                # empty by design — token lives in $COPILOT_GITHUB_TOKEN
 ```
+
+> ⚠️ **Treat `~/.crewrig-e2e/gemini/` like `~/.ssh/`.** The captured bundle
+> is **not encrypted at rest**: `oauth_creds.json` carries a long-lived
+> Google refresh token. The directory is `chmod 0700` by `auth-gemini.sh`
+> but lives in plaintext on disk. Never sync it to cloud storage, never
+> ship it inside a container image, never copy it to a shared filesystem.
+> The bundle is a developer-machine artifact only; for CI use a fresh
+> dedicated-account login per runner.
 
 Override the root with `CREWRIG_E2E_HOME=/path/to/parent` (the auth
 scripts and the runner both honour it). This matters on shared CI runners
 where `$HOME` is multi-tenant.
+
+At scenario run time the runner mounts the host bundle **read-only** at
+`/run/gemini-creds` inside the container, and a `bash -c` wrapper in
+`tests/e2e/defaults.toml [cli.gemini].command` copies it to
+`/home/agent/.gemini` before `exec gemini`. The writable copy lets the
+CLI perform atomic writes (`projects.json`, etc.) without mutating the
+host bundle. See issue #147 §5 and the #148 design note for the
+rationale.
 
 ### Per-CLI auth notes
 

@@ -32,15 +32,43 @@ e2e_chown_bootstrap "$CLI" "$IMAGE"
 e2e_info "[$CLI] Launching Gemini CLI. In the menu, pick \"Login with Google\" and complete the browser flow."
 e2e_info "[$CLI] Once you see the welcome prompt, type \"/quit\" (or Ctrl-D) to exit."
 
+HOST_GEMINI="${HOME}/.gemini"
+
 docker run --rm -it \
-  -v "${DIR}:/home/agent/.${CLI}" \
+  -v "${HOST_GEMINI}:/home/agent/.${CLI}" \
   "$IMAGE" \
   gemini \
   || e2e_die "[$CLI] interactive container exited non-zero. Re-run after resolving the error above."
 
+# Post-login: capture the full ~/.gemini bundle into $DIR via a denylist copy.
+# Rationale (issue #148, design note Decision 1): #147 §6.1 #1 recommends
+# capturing every top-level artifact minus a small denylist. Hand-curated
+# allowlists silently miss files added by future Gemini CLI versions.
+if [ ! -d "$HOST_GEMINI" ]; then
+  e2e_die "[$CLI] Host ${HOST_GEMINI} does not exist after interactive container exit — login flow did not produce credentials."
+fi
+
+e2e_info "[$CLI] Capturing ${HOST_GEMINI}/ → ${DIR}/ (denylist applied post-copy)…"
+# cp -R copies directory contents into $DIR. Trailing /. on the source copies
+# the *contents* (matching rsync src/ semantics) rather than nesting under
+# $DIR/.gemini/. -p preserves mode bits — host 0600 on creds stays 0600.
+cp -Rp "${HOST_GEMINI}/." "${DIR}/"
+
+# Denylist (Decision 1):
+#   antigravity-browser-profile/ — ~18k Chromium cache files (#147 §2)
+#   antigravity/                 — sibling browser profile
+#   tmp/                         — transient session scratch (#147 §2)
+#   *.bak / *.ori / *.orig       — Bucket D leftovers (#147 §2.4)
+rm -rf \
+  "${DIR}/antigravity-browser-profile" \
+  "${DIR}/antigravity" \
+  "${DIR}/tmp"
+find "$DIR" -maxdepth 2 -type f \( -name '*.bak' -o -name '*.ori' -o -name '*.orig' \) -delete
+
 # Post-flight: oauth_creds.json is the load-bearing file; settings.json holds
-# the selected auth type and is written on first menu choice. Both should be
-# present after a successful login.
+# the selected auth type and is written on first menu choice. Both must be
+# present after a successful login. Any other artifact missing is host
+# weirdness, not a login-flow failure (Decision 1 blast radius).
 missing=()
 [ -f "${DIR}/oauth_creds.json" ] || missing+=("oauth_creds.json")
 [ -f "${DIR}/settings.json" ]    || missing+=("settings.json")
@@ -52,23 +80,19 @@ if [ "${#missing[@]}" -gt 0 ]; then
   exit 1
 fi
 
-# Refuse to leave API-key material on disk (Decision 7 of ADR 0002).
-if grep -qE 'GEMINI_API_KEY|GOOGLE_API_KEY' "${DIR}/settings.json" 2>/dev/null \
-   || grep -qE 'GEMINI_API_KEY|GOOGLE_API_KEY' "${DIR}/oauth_creds.json" 2>/dev/null; then
-  e2e_die "[$CLI] API-key material detected in $DIR — API keys MUST be passed via the host shell env at scenario run time, never persisted. Delete the offending file and re-run."
+# Refuse to leave API-key material on disk (Decision 7 of ADR 0002). With the
+# broader capture we walk the full $DIR rather than the two original files —
+# any new Gemini CLI artifact may carry the key. One-shot interactive script;
+# perf is irrelevant (design note Concerns #2).
+if grep -rlE 'GEMINI_API_KEY|GOOGLE_API_KEY' "$DIR" 2>/dev/null | grep -q .; then
+  e2e_die "[$CLI] API-key material detected under $DIR — API keys MUST be passed via the host shell env at scenario run time, never persisted. Delete the offending file(s) and re-run."
 fi
 
-# Write a headless-compatible settings stub for e2e scenario runs.
-# settings.json with selectedType=oauth-personal causes `gemini -p` to open a
-# persistent streaming connection to Google that never closes, blocking the
-# container indefinitely. An empty object ({}) causes the CLI to fall back to
-# GEMINI_API_KEY from the environment, which the e2e runner forwards via
-# defaults.toml env_keys. The scenario runner mounts this file over the real
-# settings.json using a Docker file-over-dir bind mount so the host copy is
-# never modified. See issue #136 for the root-cause analysis.
-HEADLESS_SETTINGS="${DIR}/settings-headless.json"
-printf '{}\n' > "$HEADLESS_SETTINGS"
-e2e_info "[$CLI] Wrote ${HEADLESS_SETTINGS} (mounted over settings.json at scenario run time; GEMINI_API_KEY must be set in the shell)."
+# Lock the bundle down: the captured tree contains a long-lived OAuth refresh
+# token. 0700 on the parent dir is the minimum posture on a shared dev box
+# (#147 §8 observed the parent at drwxrwxrwx before this change).
+chmod 700 "$DIR"
 
-e2e_info "[$CLI] Authenticated. Credentials persisted under $DIR."
-e2e_info "[$CLI] Next: run scenarios with the dir mounted read-only (issue #78)."
+e2e_info "[$CLI] Authenticated. Credentials persisted under $DIR (mode 0700)."
+e2e_info "[$CLI] Bundle contains a long-lived OAuth refresh token. Treat ${DIR} like ~/.ssh — host-only, never sync to cloud storage, never ship in container images."
+e2e_info "[$CLI] Next: run scenarios with the dir mounted read-only at /run/gemini-creds (issue #78)."
