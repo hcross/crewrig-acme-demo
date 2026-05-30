@@ -148,6 +148,8 @@ tests are sufficient.
 | **C** | `~/.crewrig-e2e/gemini` `:ro` at `/run/gemini-creds`; copied to `/home/agent/.gemini` inside container; `chown agent:agent` | same | **EXIT=0**, "Pong" in seconds | ✅ fix pattern works |
 | **D** | same as C | **no env injection** | **EXIT=0**, "White" | OAuth token refresh is vestigial — `oauth-personal` works headless when the bundle is writable. |
 | **E** | minimal bundle (`oauth_creds.json` + `settings.json` only) | none | inconclusive — Docker Desktop fs sharing did not propagate `/tmp/gem-min/` into the container | To be re-run inside #148 with a stable mount path. |
+| **E′** | minimal bundle re-run on the `/run/gemini-creds` stable mount inside `$HOME/tmp/gem-148/` (#148 closure of Test E) | none | **EXIT=0** only when `trustedFolders.json` is included; `oauth_creds.json + settings.json` alone returns `Gemini CLI is not running in a trusted directory` exit 1 | ✅ minimal load-bearing set narrowed to `{oauth_creds.json, settings.json, trustedFolders.json}`. See `tests/e2e/reports/148/test-e-subsets.md` and §2.1. |
+| **F** | bundle as in C + `~/.gemini/[0-6]0_*.md` mounted at `/run/gemini-rules:ro`, bootstrap-time patch of `settings.json.context.fileName` to enumerate the manifest, then `exec gemini -p` (#148 commit `fd196d4`) | none | **EXIT=0**, "Nantes" — LLM in-context loads the layered rules and answers from `30_USER_PROFILE.md` | ✅ `settings.json.context.fileName` is the autoload manifest contract — pre-#147 unknown (cf. §7 read-side trace gap). Empty manifest or absent `context` block ⇒ rules not autoloaded ⇒ model hallucinates (verified empirically: "Zurich" hallucination at `6fcac29` before manifest wiring). |
 
 ### 4.3 Diagnostic value of error messages
 

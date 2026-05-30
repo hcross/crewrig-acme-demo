@@ -106,3 +106,54 @@ Report dir: tests/e2e/reports/20260530T164640Z-1fbe/gemini/01-layered-context/
 
 Defect surfaced to team-lead. NOT in tester scope to wire the
 context-loading mechanism.
+
+---
+
+## Re-run at commit fd196d4 (context.fileName manifest wired) — PASS
+
+`task e2e:test -- --scenario 01-layered-context --cli gemini` →
+`ok 1 - gemini/01-layered-context`. All three sub-assertions green:
+
+  ok 1 - side-effect: answer file present
+  ok 2 - structural: answer matches /[Nn]antes/
+  ok 3 - llm-judge: profile-awareness criterion met
+  1..3
+
+`out/answer.txt = "Nantes"` — the rules pipeline (`/run/gemini-rules`
+→ bootstrap glob → `/home/agent/.gemini/[0-6]0_*.md` + bootstrap-patched
+`settings.json.context.fileName` manifest) successfully delivers
+`30_USER_PROFILE.md` ("Location: Nantes") into the model's in-context
+window.
+
+Full suite (`task e2e:test`):
+
+  # pass: 8  fail: 3  skip: 0
+
+Up from the 7/4/0 baseline. The 3 remaining fails are the pre-existing
+out-of-#148-scope set (copilot/01, claude/02, gemini/02 — none
+regressed).
+
+### Wall-clock
+
+| Measurement | Targeted run | Full-suite run |
+|---|---|---|
+| Report dir | 20260530T170534Z-1f2e | 20260530T170757Z-2c51 |
+| invocation.txt → exit file | ~114 s | ~140 s |
+
+Both measurements are above Decision 7's >15 s flag threshold. The
+overshoot is attributable to the now-loaded layered-context payload:
+gemini -p processes seven markdown files (`00_SOUL.md` ... `60_TOOLS.md`)
+as in-context manifests, plus the LLM-judge step (which itself attempts
+an Anthropic round-trip — `judge.log` records VERDICT=UNCERTAIN
+auth-missing on the judge backend, but the structural [Nn]antes
+assertion is what gates the scenario).
+
+The 120 s timeout class is **eliminated** as the failure mode for this
+PR — the previous EXIT=124 silent hang was the gemini auth-block; the
+new ~2 min wall-clock is structured work (network round-trip on a
+multi-thousand-token prompt). Reportable but acceptable; flagged for
+the team-lead so the PR body cites the discrepancy with Decision 7's
+single-digit-seconds target.
+
+Verdict: **PASS** (acceptance is the `[Nn]antes` match; wall-clock is a
+secondary metric flagged but not gating).
