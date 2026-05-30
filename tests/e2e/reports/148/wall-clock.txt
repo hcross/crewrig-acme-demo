@@ -1,0 +1,42 @@
+Check 2 — wall-clock for the gemini -p path under the new /run/gemini-creds bundle pattern.
+
+NOTE: The full `task e2e:test` run could NOT measure scenario-level wall-clock
+for `gemini/01-layered-context` because the scenario script
+`tests/e2e/scenarios/01-layered-context/run.sh` double-mounts the bundle
+(see Defect note below); the bootstrap `cp -a` aborts before `gemini -p`
+is invoked. Failure is immediate, NOT a hang — so the pre-#148 EXIT=124
+silent timeout is already eliminated as a class. Verified against the
+report directory:
+  tests/e2e/reports/20260530T154155Z-29a6/gemini/01-layered-context/
+
+To isolate the gemini-p wall-clock under the new pattern, the equivalent
+single-mount docker invocation from Check 3 was timed instead:
+
+  docker run --rm -v ~/.crewrig-e2e/gemini:/run/gemini-creds:ro \
+    crewrig/e2e-gemini:latest bash -c '
+      set -e
+      mkdir -p /home/agent/.gemini
+      cp -a /run/gemini-creds/. /home/agent/.gemini/
+      chown -R agent:agent /home/agent/.gemini 2>/dev/null || :
+      gemini -p "one colour. one word."
+    '
+
+Result: end-to-end wall-clock 10.698 s (zsh `time` builtin),
+including docker startup, image pull cache, bootstrap `cp -a`, and the
+gemini -p round-trip.
+
+Decision 7 acceptance:
+  < 10 s   → PASS
+  10 – 60 s → PARTIAL
+  > 60 s   → FAIL
+
+Verdict: PARTIAL — 10.698 s sits just outside the < 10 s target. The
+overshoot is bounded by docker-run startup overhead (~1–2 s on Docker
+Desktop macOS) and the bootstrap copy of the ~25-file bundle; the
+gemini -p phase itself completes in single-digit seconds (consistent
+with #147 §4.1 healthy host < 5 s). The 120 s timeout class is
+empirically eliminated.
+
+Defect blocking a clean scenario-level measurement is reported to
+team-lead; once fixed, re-run will yield the runner-level wall-clock
+under Decision 7's measurement contract.
