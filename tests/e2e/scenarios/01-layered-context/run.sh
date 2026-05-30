@@ -108,9 +108,22 @@ esac
 
 docker_argv=(
   docker run --rm --name "$container_name"
-  -v "${rules_dir}:${rules_mount_target}:${rules_mount_mode}"
   -v "${host_out}:/out"
 )
+# Per-CLI rules mount. Gemini intentionally has NO host-side rules mount
+# here: the defaults.toml [cli.gemini].command bootstrap populates
+# /home/agent/.gemini from /run/gemini-creds + /run/gemini-rules
+# in-container (issue #148 Decision 5 Revision 2). Adding a third bind-
+# mount at /home/agent/.gemini would collide with the bootstrap's
+# `cp -a /run/gemini-creds/. /home/agent/.gemini/` self-source.
+case "$E2E_CLI" in
+  claude|copilot)
+    docker_argv+=(-v "${rules_dir}:${rules_mount_target}:${rules_mount_mode}")
+    ;;
+  gemini)
+    : # No host-side rules mount — bootstrapped via defaults.toml. See above.
+    ;;
+esac
 # Mounts from effective config (e.g. Ollama keypair dir from local.toml).
 for _m in "${_cli_mounts[@]}"; do
   docker_argv+=(-v "$(expand_mount "$_m")")

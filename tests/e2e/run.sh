@@ -161,17 +161,23 @@ if [[ ${#SELECTED_SCENARIOS[@]} -eq 0 ]]; then
 fi
 
 # --------------------------------------------------------------------------
-# Expand env-var template inside mount strings. Currently only
-# ${CREWRIG_E2E_HOME} is recognised; expansion uses e2e_e2e_home so the
-# CREWRIG_E2E_HOME override mechanism is preserved.
+# Expand env-var templates inside mount strings. Recognised tokens:
+#   ${CREWRIG_E2E_HOME} — bundle root (e2e_e2e_home; honours the user
+#                        override per ADR 0003).
+#   ${HOME}             — host user home, used by the gemini layered-
+#                        context rules mount (see #148 Decision 5
+#                        Revision 2 in tests/e2e/defaults.toml).
+# Adding new tokens is a config-class edit — extend the substitution
+# chain below; do not introduce arbitrary shell expansion.
 # --------------------------------------------------------------------------
 expand_mount() {
   local raw="$1"
   local e2e_home
   e2e_home="$(e2e_e2e_home)"
-  # Replace literal "${CREWRIG_E2E_HOME}" — guard against re-expansion by
-  # the shell by doing a plain string substitution.
-  printf '%s\n' "${raw//\$\{CREWRIG_E2E_HOME\}/$e2e_home}"
+  # Plain string substitutions — guard against re-expansion by the shell.
+  local expanded="${raw//\$\{CREWRIG_E2E_HOME\}/$e2e_home}"
+  expanded="${expanded//\$\{HOME\}/$HOME}"
+  printf '%s\n' "$expanded"
 }
 
 # Validate that an env var name matches the safe regex. Closes the secret-

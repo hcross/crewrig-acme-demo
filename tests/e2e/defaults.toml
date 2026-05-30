@@ -50,11 +50,22 @@ image        = "crewrig/e2e-gemini:latest"
 # with EPERM; other errors surface to stderr for diagnosis (Low-3).
 command      = [
   "bash", "-c",
-  "set -e; mkdir -p /home/agent/.gemini; cp -a /run/gemini-creds/. /home/agent/.gemini/; chown_err=$(chown -R agent:agent /home/agent/.gemini 2>&1 >/dev/null) || case \"$chown_err\" in *\"Operation not permitted\"*|*\"not super-user\"*|*\"not permitted\"*) : ;; *) printf 'chown warning: %s\\n' \"$chown_err\" >&2 ;; esac; exec gemini \"$@\"",
+  "set -e; mkdir -p /home/agent/.gemini; cp -a /run/gemini-creds/. /home/agent/.gemini/; cp -a /run/gemini-rules/[0-6]0_*.md /home/agent/.gemini/ 2>/dev/null || echo '[bootstrap] no layered-context rules found at /run/gemini-rules — scenario LLM-judge will surface the gap' >&2; chown_err=$(chown -R agent:agent /home/agent/.gemini 2>&1 >/dev/null) || case \"$chown_err\" in *\"Operation not permitted\"*|*\"not super-user\"*|*\"not permitted\"*) : ;; *) printf 'chown warning: %s\\n' \"$chown_err\" >&2 ;; esac; exec gemini \"$@\"",
   "sh"
 ]
 command_args = []
-mounts       = ["${CREWRIG_E2E_HOME}/gemini:/run/gemini-creds:ro"]
+# Two-mount layout (issue #148 Decision 5 Revision 2):
+#   /run/gemini-creds — sandboxed auth bundle (load-bearing for login).
+#   /run/gemini-rules — host's deployed layered-context rules (00–60 files).
+# DO NOT widen the bootstrap glob from `[0-6]0_*.md` to anything broader
+# (e.g. `cp -a /run/gemini-rules/. …`) without revisiting Decision 5
+# Revision 2 — the user's host `~/.gemini` carries personal state
+# (history/, extensions/, MCP configs) that MUST NOT leak into the
+# scenario container.
+mounts       = [
+  "${CREWRIG_E2E_HOME}/gemini:/run/gemini-creds:ro",
+  "${HOME}/.gemini:/run/gemini-rules:ro",
+]
 env_keys     = ["GEMINI_API_KEY", "GOOGLE_CLOUD_ACCESS_TOKEN", "GOOGLE_GENAI_USE_GCA"]
 
 [cli.copilot]
