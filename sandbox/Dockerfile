@@ -4,8 +4,17 @@
 # and be driven with Claude Code — so you can experiment with this fork
 # WITHOUT touching your personal Claude Code / CrewRig installation.
 #
-# The fork itself is NOT copied in: it is bind-mounted at runtime (see run.sh),
-# mirroring the host directory both ways. Only the toolchain lives in the image.
+# Layout inside the container (a small dev tree under /workspace):
+#
+#   /workspace/
+#   ├── crewrig-acme/              <- the fork, bind-mounted at runtime (see run.sh)
+#   └── games/                     <- sample open-source games, baked into the image
+#       ├── android/2048-android/  <- uberspot/2048-android (native Java)
+#       └── web/hextris/           <- Hextris/hextris (HTML5 arcade)
+#
+# Only the fork is bind-mounted (mirroring the host directory both ways); the
+# games live in the image so the harness engineering loop has real targets to
+# work on.
 
 FROM ubuntu:24.04
 
@@ -20,12 +29,23 @@ ENV DEBIAN_FRONTEND=noninteractive \
 #   jq            : required by scripts/build-components.sh
 #   fzf           : required by the interactive setup scripts (team/expertise/level pickers)
 #   python3       : harness-curator helper scripts
-#   curl/ca-certs : fetching node, yq, and Claude Code at runtime/build
+#   curl/ca-certs : fetching node, yq, gh, and Claude Code
 #   sudo/less/vim : interactive comfort inside the sandbox
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl git bash jq fzf less vim sudo \
         python3 python3-pip gnupg xz-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# --- GitHub CLI (gh) — needed for the harness engineering loop demo ---
+RUN mkdir -p -m 755 /etc/apt/keyrings \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/* \
+    && gh --version
 
 # --- Node.js (NodeSource) + npm ---
 RUN curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - \
@@ -50,10 +70,30 @@ RUN npm install -g @anthropic-ai/claude-code markdownlint-cli \
 # user, so host files stay editable both ways without uid juggling.
 RUN useradd -m -s /bin/bash dev \
     && echo 'dev ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/dev \
-    && chmod 0440 /etc/sudoers.d/dev
+    && chmod 0440 /etc/sudoers.d/dev \
+    && mkdir -p /workspace/crewrig-acme /workspace/games/android /workspace/games/web \
+    && chown -R dev:dev /workspace
 
 USER dev
 ENV HOME=/home/dev
+
+# --- Sample open-source games (baked in, shallow clones to stay small) ---
+# Short/fast arcade games — on-theme with the ACME Corp demo fork. Each is
+# re-initialised as a FRESH git repo with a single import commit, so the
+# harness engineering loop can branch/commit locally on them out of the box
+# (the upstream history and remote are intentionally dropped).
+RUN git clone --depth 1 https://github.com/uberspot/2048-android.git \
+        /workspace/games/android/2048-android \
+    && git clone --depth 1 https://github.com/Hextris/hextris.git \
+        /workspace/games/web/hextris \
+    && for g in /workspace/games/android/2048-android /workspace/games/web/hextris; do \
+         rm -rf "$g/.git" \
+         && git -C "$g" -c init.defaultBranch=main init -q \
+         && git -C "$g" -c user.email=dev@acme.example -c user.name="ACME dev" add -A \
+         && git -C "$g" -c user.email=dev@acme.example -c user.name="ACME dev" \
+                commit -q -m "📦 Import sample game (upstream history dropped)"; \
+       done
+
 WORKDIR /workspace
 
 # Friendly banner so a first-time user knows the available moves.

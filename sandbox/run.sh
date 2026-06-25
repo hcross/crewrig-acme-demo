@@ -3,10 +3,14 @@
 # Launch the CrewRig adoption-fork sandbox.
 #
 # Builds the image (once, cached) and drops you into an isolated Ubuntu
-# container with Node, Claude Code, and the full toolchain. The fork is
-# bind-mounted at /workspace, mirroring this repository both ways. The
-# container's ~/.claude lives in a dedicated Docker volume, so nothing here
-# pollutes your personal Claude Code / CrewRig installation on the host.
+# container with Node, Claude Code, gh, and the full toolchain. The dev tree
+# lives under /workspace:
+#
+#   /workspace/crewrig-acme/   <- this fork, bind-mounted (mirrors the host both ways)
+#   /workspace/games/          <- sample Android + web games baked into the image
+#
+# The container's ~/.claude (and gh config) live in a dedicated Docker volume,
+# so nothing here pollutes your personal Claude Code / CrewRig / gh setup.
 #
 # Usage:
 #   sandbox/run.sh                 # build if needed, then open an interactive shell
@@ -14,8 +18,11 @@
 #   sandbox/run.sh claude          # run a command directly instead of a shell
 #   sandbox/run.sh -- claude --help
 #
-# Auth: if ANTHROPIC_API_KEY is set in your host environment it is forwarded;
-# otherwise run `claude` inside the container and /login (persists in the volume).
+# Auth:
+#   - Claude Code: ANTHROPIC_API_KEY is forwarded if set; otherwise run `claude`
+#     inside and /login (persists in the volume).
+#   - gh: GH_TOKEN / GITHUB_TOKEN are forwarded if set; otherwise run
+#     `gh auth login` inside (persists in the volume).
 
 set -euo pipefail
 
@@ -54,20 +61,20 @@ fi
 # --- Ensure the persistent, isolated HOME volume exists ---
 "$ENGINE" volume inspect "$VOLUME" >/dev/null 2>&1 || "$ENGINE" volume create "$VOLUME" >/dev/null
 
-# --- Forward the API key only if present ---
+# --- Forward credentials only if present in the host environment ---
 ENV_ARGS=()
-if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-  ENV_ARGS+=(-e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}")
-fi
+[[ -n "${ANTHROPIC_API_KEY:-}" ]] && ENV_ARGS+=(-e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}")
+[[ -n "${GH_TOKEN:-}" ]]         && ENV_ARGS+=(-e "GH_TOKEN=${GH_TOKEN}")
+[[ -n "${GITHUB_TOKEN:-}" ]]     && ENV_ARGS+=(-e "GITHUB_TOKEN=${GITHUB_TOKEN}")
 
 # Default command: an interactive shell.
 if [[ ${#ARGS[@]} -eq 0 ]]; then
   ARGS=(bash)
 fi
 
-echo ">> Entering sandbox (fork mounted at /workspace, HOME isolated in volume '$VOLUME')"
+echo ">> Entering sandbox (fork at /workspace/crewrig-acme, HOME isolated in volume '$VOLUME')"
 exec "$ENGINE" run --rm -it \
-  -v "$REPO_DIR":/workspace \
+  -v "$REPO_DIR":/workspace/crewrig-acme \
   -v "$VOLUME":/home/dev \
   -w /workspace \
   "${ENV_ARGS[@]}" \
