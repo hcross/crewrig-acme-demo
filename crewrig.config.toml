@@ -8,7 +8,7 @@
 # upstream).
 canonical_repo = "https://github.com/crewrig/crewrig"
 
-# feedback_repo — ACME's own (fictional) tracker. Friction MRs on
-# adopter-owned tiers (artifacts/community, artifacts/org, extensions/org)
-# land here. Components we did not author still route upstream by design.
-feedback_repo  = "https://github.com/acme-corp/crewrig-acme"
+# feedback_repo — this fork's own tracker. Friction MRs on adopter-owned
+# tiers (artifacts/community, artifacts/org, extensions/org) land here.
+# Components we did not author still route upstream by design.
+feedback_repo  = "https://github.com/hcross/crewrig-acme-demo"
