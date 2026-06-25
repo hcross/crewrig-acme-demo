@@ -71,6 +71,14 @@ RUN curl -LsSf https://astral.sh/uv/install.sh \
         | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh \
     && uv --version && uvx --version
 
+# --- systemctl shim ---
+# A container has no init system, so MemPalace's setup (which registers the
+# ChromaDB daemon as a systemd --user service) would abort. This shim runs the
+# unit's ExecStart directly so `setup-claude-interactive` completes. See the
+# script header for details.
+COPY systemctl-shim.sh /usr/local/bin/systemctl
+RUN chmod +x /usr/local/bin/systemctl
+
 # --- Claude Code + a couple of always-useful global CLIs ---
 # Installed in the image so the sandbox is ready to drive the fork immediately.
 RUN npm install -g @anthropic-ai/claude-code markdownlint-cli \
