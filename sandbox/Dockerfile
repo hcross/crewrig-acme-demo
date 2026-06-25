@@ -71,6 +71,13 @@ RUN curl -LsSf https://astral.sh/uv/install.sh \
         | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh \
     && uv --version && uvx --version
 
+# --- git safe.directory ---
+# Bind-mounted repos carry the host uid (e.g. 502 on macOS), which differs from
+# the container user, so git's dubious-ownership guard would block every command
+# in /workspace/crewrig-acme. Allow any path at the SYSTEM level (/etc/gitconfig)
+# — system config is image filesystem, not shadowed by the HOME volume.
+RUN git config --system --add safe.directory '*'
+
 # --- systemctl shim ---
 # A container has no init system, so MemPalace's setup (which registers the
 # ChromaDB daemon as a systemd --user service) would abort. This shim runs the
