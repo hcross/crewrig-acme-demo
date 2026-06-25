@@ -34,7 +34,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 #   sudo/less/vim : interactive comfort inside the sandbox
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl git bash jq fzf less vim sudo \
-        python3 python3-pip gnupg xz-utils \
+        python3 python3-pip python3-venv pipx python-is-python3 gnupg xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # --- GitHub CLI (gh) — needed for the harness engineering loop demo ---
@@ -66,6 +66,11 @@ RUN curl -fsSL https://taskfile.dev/install.sh \
         | sh -s -- -b /usr/local/bin "${TASK_VERSION}" \
     && task --version
 
+# --- uv / uvx (Astral) — system-wide, for installing Python apps like MemPalace ---
+RUN curl -LsSf https://astral.sh/uv/install.sh \
+        | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh \
+    && uv --version && uvx --version
+
 # --- Claude Code + a couple of always-useful global CLIs ---
 # Installed in the image so the sandbox is ready to drive the fork immediately.
 RUN npm install -g @anthropic-ai/claude-code markdownlint-cli \
@@ -82,6 +87,10 @@ RUN useradd -m -s /bin/bash dev \
 
 USER dev
 ENV HOME=/home/dev
+# pipx and `uv tool install` drop app shims into ~/.local/bin. Set this on PATH
+# via ENV (not a shell rc) because the runtime HOME volume shadows any rc file
+# written at build time — ENV is image config and survives the volume mount.
+ENV PATH="/home/dev/.local/bin:${PATH}"
 
 # --- Sample open-source games (baked in, shallow clones to stay small) ---
 # Short/fast arcade games — on-theme with the ACME Corp demo fork. Each is
