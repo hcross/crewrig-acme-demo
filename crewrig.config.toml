@@ -1,20 +1,14 @@
-# Crewrig fork configuration.
+# Crewrig fork configuration — ACME Corp overlay.
 #
-# Each fork commits its own values here. The build pipeline reads this file
-# during `task build-components` and substitutes ${UPPERCASED_KEY} placeholders
-# in source files (artifacts/**) with the values below.
-#
-# Forks targeting an internal mirror typically:
-#   - Keep `canonical_repo` pointing at the upstream they forked from
-#     (audit trail, license trace).
-#   - Override `feedback_repo` so MRs from the harness curator land on
-#     their own internal repo, not the public upstream.
-#
-# `feedback_repo` scopes to ADOPTER-OWNED tiers only (artifacts/community,
-# artifacts/org, extensions/org). Upstream-owned components always route
-# feedback to `canonical_repo`. See artifacts/FORMAT.md (Provenance & Forks).
-#
-# See artifacts/FORMAT.md (Provenance Block) and issue #41 for context.
+# Generated for the CrewRig training fork. This file is overlay (owned by
+# ACME Corp) and is never overwritten by `scripts/sync-from-upstream.sh`.
 
+# canonical_repo — kept pointing at the upstream we forked from, so the
+# audit trail and license trace remain intact (we are NOT the canonical
+# upstream).
 canonical_repo = "https://github.com/crewrig/crewrig"
-feedback_repo  = "https://github.com/crewrig/crewrig"
+
+# feedback_repo — ACME's own (fictional) tracker. Friction MRs on
+# adopter-owned tiers (artifacts/community, artifacts/org, extensions/org)
+# land here. Components we did not author still route upstream by design.
+feedback_repo  = "https://github.com/acme-corp/crewrig-acme"
