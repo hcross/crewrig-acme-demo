@@ -20,6 +20,7 @@ FROM ubuntu:24.04
 
 ARG NODE_MAJOR=22
 ARG YQ_VERSION=v4.53.3
+ARG TASK_VERSION=v3.51.1
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8
@@ -59,6 +60,11 @@ RUN ARCH="$(dpkg --print-architecture)" \
         -o /usr/local/bin/yq \
     && chmod +x /usr/local/bin/yq \
     && yq --version
+
+# --- go-task (Task runner — the project drives everything via Taskfile.yml) ---
+RUN curl -fsSL https://taskfile.dev/install.sh \
+        | sh -s -- -b /usr/local/bin "${TASK_VERSION}" \
+    && task --version
 
 # --- Claude Code + a couple of always-useful global CLIs ---
 # Installed in the image so the sandbox is ready to drive the fork immediately.
