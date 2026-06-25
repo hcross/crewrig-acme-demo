@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# pipx 1.x stores venvs under ~/.local/share/pipx (XDG layout), but the
+# ChromaDB systemd unit shipped by crewrig hardcodes the older ~/.local/pipx
+# path. Bridge them with a symlink so the unit's ExecStart resolves (combined
+# with the systemctl shim's interpreter-drop, the daemon then starts on the
+# venv's python regardless of the unit's hardcoded python3.13).
+if [ -d "$HOME/.local/share/pipx" ] && [ ! -e "$HOME/.local/pipx" ]; then
+  ln -s "$HOME/.local/share/pipx" "$HOME/.local/pipx"
+fi
+
 cat <<'BANNER'
 ────────────────────────────────────────────────────────────────────────────
  CrewRig adoption fork — sandbox (ACME Corp)
