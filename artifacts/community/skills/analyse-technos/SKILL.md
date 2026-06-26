@@ -6,9 +6,9 @@ description: "Scan a project and produce a grouped technology inventory: languag
 type: skill
 metadata:
   provenance:
-    canonical: "${CANONICAL_REPO}"
+    canonical: "${FEEDBACK_REPO}"
     feedback: "${FEEDBACK_REPO}"
-    version: "1.0.0"
+    version: "1.0.1"
 claude:
   allowed-tools:
     - Read
