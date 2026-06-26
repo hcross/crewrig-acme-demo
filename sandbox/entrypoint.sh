@@ -10,6 +10,18 @@ if [ -d "$HOME/.local/share/pipx" ] && [ ! -e "$HOME/.local/pipx" ]; then
   ln -s "$HOME/.local/share/pipx" "$HOME/.local/pipx"
 fi
 
+# Auto-start the MemPalace ChromaDB daemon on each session. A container has no
+# init system, so the daemon started during setup does not survive across
+# `docker run` invocations — without this, the MemPalace MCP server has nothing
+# to talk to at 127.0.0.1:8001 and friction tags / memory writes fail. Only
+# fires when MemPalace was actually set up (its unit exists). Non-blocking.
+_mp_unit="$HOME/.config/systemd/user/mempalace-chroma-server.service"
+if [ -f "$_mp_unit" ] && ! curl -sf http://127.0.0.1:8001/api/v2/heartbeat >/dev/null 2>&1; then
+  echo ">> Starting MemPalace ChromaDB daemon (127.0.0.1:8001)..."
+  systemctl --user start mempalace-chroma-server >/dev/null 2>&1 || \
+    echo ">> Warning: could not start the ChromaDB daemon; run 'systemctl --user start mempalace-chroma-server'." >&2
+fi
+
 cat <<'BANNER'
 ────────────────────────────────────────────────────────────────────────────
  CrewRig adoption fork — sandbox (ACME Corp)
