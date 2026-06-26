@@ -8,7 +8,7 @@ metadata:
   provenance:
     canonical: "${FEEDBACK_REPO}"
     feedback: "${FEEDBACK_REPO}"
-    version: "1.0.1"
+    version: "1.0.2"
 claude:
   allowed-tools:
     - Read
@@ -112,7 +112,16 @@ line: `**Name** — role or brief note`.
 Append a `### Sources` subsection listing the files that contributed evidence,
 so the reader can verify the inventory without re-running the scan.
 
+Produce **all headings, bullet labels, and prose in the user's active
+interaction language** as defined by the session's language rule (e.g. the
+global idiomatic-French instruction). Technology names, file paths, and code
+identifiers are never translated.
+
 ## Output format
+
+> Produce this report in the user's active interaction language. The template
+> below uses English as an illustration only — headings and prose must match
+> the session language.
 
 ```markdown
 ## Technology Inventory
