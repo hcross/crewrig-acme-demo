@@ -61,11 +61,24 @@ fi
 # --- Ensure the persistent, isolated HOME volume exists ---
 "$ENGINE" volume inspect "$VOLUME" >/dev/null 2>&1 || "$ENGINE" volume create "$VOLUME" >/dev/null
 
-# --- Forward credentials only if present in the host environment ---
+# --- Forward credentials ---
 ENV_ARGS=()
 [[ -n "${ANTHROPIC_API_KEY:-}" ]] && ENV_ARGS+=(-e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}")
-[[ -n "${GH_TOKEN:-}" ]]         && ENV_ARGS+=(-e "GH_TOKEN=${GH_TOKEN}")
-[[ -n "${GITHUB_TOKEN:-}" ]]     && ENV_ARGS+=(-e "GITHUB_TOKEN=${GITHUB_TOKEN}")
+
+# GitHub: gh + git-over-HTTPS in the container authenticate with a token. Prefer
+# an explicit env var; otherwise transparently reuse the host's gh credential
+# (`gh auth token`). The image rewrites SSH GitHub remotes to HTTPS and uses gh
+# as the git credential helper, so `git push` and `gh pr create` just work.
+GH_TOKEN_VALUE="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+if [[ -z "$GH_TOKEN_VALUE" ]] && command -v gh >/dev/null 2>&1; then
+  GH_TOKEN_VALUE="$(gh auth token 2>/dev/null || true)"
+fi
+if [[ -n "$GH_TOKEN_VALUE" ]]; then
+  ENV_ARGS+=(-e "GH_TOKEN=${GH_TOKEN_VALUE}")
+else
+  echo ">> Warning: no GitHub token found on the host (set GH_TOKEN or run 'gh auth login')." >&2
+  echo ">>          git push / gh inside the sandbox will need 'gh auth login' first." >&2
+fi
 
 # Default command: an interactive shell.
 if [[ ${#ARGS[@]} -eq 0 ]]; then
